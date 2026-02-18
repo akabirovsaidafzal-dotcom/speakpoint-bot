@@ -57,44 +57,45 @@ def add_points(user_id, amount):
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    add_user(user.id, user.username or user.first_name)
+    chat = update.effective_chat
 
-    duration = update.message.voice.duration
-
-    if duration < 20:
-        await update.message.reply_text(
-            f"🎤 @{user.username or user.first_name}, your voice is less than 20 seconds.\nPlease expand your answer."
-        )
+    # 🚫 Skip if admin or owner
+    member = await chat.get_member(user.id)
+    if member.status in ["administrator", "creator"]:
         return
 
-    add_points(user.id, 1)
+    data = load_data()
+
+    user_id = str(user.id)
+    data[user_id] = data.get(user_id, 0) + 5
+
+    save_data(data)
 
     await update.message.reply_text(
-        f"👏 Very good, @{user.username or user.first_name} +1 SpeakPoint"
+        f"🎤 +5 SpeakPoints, {user.first_name}!\n"
+        f"Total: {data[user_id]} points"
     )
 
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    add_user(user.id, user.username or user.first_name)
+    chat = update.effective_chat
 
-    if update.message.video:
-        duration = update.message.video.duration
-    elif update.message.video_note:
-        duration = update.message.video_note.duration
-    else:
+    # 🚫 Skip if admin or owner
+    member = await chat.get_member(user.id)
+    if member.status in ["administrator", "creator"]:
         return
 
-    if duration < 20:
-        await update.message.reply_text(
-            f"🎥 @{user.username or user.first_name}, your video is less than 20 seconds.\nPlease expand your answer."
-        )
-        return
+    data = load_data()
 
-    add_points(user.id, 2)
+    user_id = str(user.id)
+    data[user_id] = data.get(user_id, 0) + 5
+
+    save_data(data)
 
     await update.message.reply_text(
-        f"🔥 Excellent, @{user.username or user.first_name} +2 SpeakPoints"
+        f"📹 +5 SpeakPoints, {user.first_name}!\n"
+        f"Total: {data[user_id]} points"
     )
 
 
@@ -134,14 +135,25 @@ async def show_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_video_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    add_user(user.id, user.username or user.first_name)
+    chat = update.effective_chat
 
-    add_points(user.id, 5)
+    # 🚫 Skip if admin or owner
+    member = await chat.get_member(user.id)
+    if member.status in ["administrator", "creator"]:
+        return
 
-    await update.message.reply_text(
-        f"🎥 @{user.username or user.first_name} joined the video chat, awesome! +5 SpeakPoints"
+    data = load_data()
+
+    user_id = str(user.id)
+    data[user_id] = data.get(user_id, 0) + 5
+
+    save_data(data)
+
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=f"🎥 +5 SpeakPoints for starting video chat, {user.first_name}!\n"
+             f"Total: {data[user_id]} points"
     )
-
 
 # ------------------ MAIN ------------------
 
