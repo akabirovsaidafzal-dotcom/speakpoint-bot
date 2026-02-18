@@ -67,7 +67,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
 
     user_id = str(user.id)
-    data[user_id] = data.get(user_id, 0) + 5
+    data[user_id] = data.get(user_id, 0) + 1
 
     save_data(data)
 
