@@ -19,6 +19,8 @@ if not TOKEN:
 
 DATA_FILE = "speakpoints.json"
 
+async def get_chat_id(update, context):
+    await update.message.reply_text(str(update.effective_chat.id))
 
 # ------------------ DATABASE ------------------
 
@@ -145,6 +147,8 @@ async def handle_video_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("id", get_chat_id))
 
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))
