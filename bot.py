@@ -5,6 +5,7 @@ from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     MessageHandler,
+    CommandHandler,
     filters,
 )
 
@@ -30,13 +31,19 @@ def save_data(data):
         json.dump(data, f)
 
 
+# ---------------- CHECK ADMIN ---------------- #
+
+async def is_admin(update: Update):
+    member = await update.effective_chat.get_member(update.effective_user.id)
+    return member.status in ["administrator", "creator"]
+
+
 # ---------------- POINT SYSTEM ---------------- #
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
-    # 🚫 Skip admins and owner
     member = await chat.get_member(user.id)
     if member.status in ["administrator", "creator"]:
         return
@@ -44,17 +51,14 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     duration = None
     points_to_add = 0
 
-    # 🎤 Voice
     if update.message.voice:
         duration = update.message.voice.duration
         points_to_add = 1
 
-    # 🎥 Video
     elif update.message.video:
         duration = update.message.video.duration
         points_to_add = 2
 
-    # 🎥 Video Note
     elif update.message.video_note:
         duration = update.message.video_note.duration
         points_to_add = 2
@@ -62,7 +66,6 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
-    # ⏳ Duration check
     if duration < 20:
         await update.message.reply_text(
             f"🌟 Dear {user.first_name}, your answer is great!\n\n"
@@ -74,7 +77,6 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = load_data()
     user_id = str(user.id)
-
     username = f"@{user.username}" if user.username else user.first_name
 
     if user_id not in data:
@@ -92,6 +94,39 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ---------------- ADMIN ADDPOINTS ---------------- #
+
+async def addpoints_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /addpoints @username amount")
+        return
+
+    target_username = context.args[0]
+    try:
+        amount = int(context.args[1])
+    except:
+        await update.message.reply_text("Points must be a number.")
+        return
+
+    data = load_data()
+
+    # Find user in database
+    for user_id, user_data in data.items():
+        if user_data["name"].lower() == target_username.lower():
+            user_data["points"] += amount
+            save_data(data)
+            await update.message.reply_text(
+                f"✅ {target_username} now has {user_data['points']} SpeakPoints."
+            )
+            return
+
+    await update.message.reply_text("User not found in database.")
+
+
 # ---------------- TEXT COMMANDS ---------------- #
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -101,19 +136,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     user_id = str(user.id)
 
-    # Personal points
     if text == "speakpoints":
-        if user_id in data:
-            points = data[user_id]["points"]
-        else:
-            points = 0
-
+        points = data.get(user_id, {}).get("points", 0)
         await update.message.reply_text(
             f"📊 {user.first_name}, you currently have:\n\n"
             f"🔥 {points} SpeakPoints"
         )
 
-    # Leaderboard
     elif text == "top":
         if not data:
             await update.message.reply_text("No SpeakPoints yet 🚀")
@@ -145,6 +174,8 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, process_message))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, process_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    app.add_handler(CommandHandler("addpoints", addpoints_command))
 
     print("SpeakPoint Bot is running...")
     app.run_polling()
