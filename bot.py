@@ -4,25 +4,19 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
-    CommandHandler,
     MessageHandler,
     filters,
 )
-
-import os
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 if not TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set.")
 
-
 DATA_FILE = "speakpoints.json"
 
-async def get_chat_id(update, context):
-    await update.message.reply_text(str(update.effective_chat.id))
 
-# ------------------ DATABASE ------------------
+# ---------------- DATA FUNCTIONS ---------------- #
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -36,137 +30,103 @@ def save_data(data):
         json.dump(data, f)
 
 
-def add_user(user_id, username):
-    data = load_data()
-    if str(user_id) not in data:
-        data[str(user_id)] = {
-            "username": username,
-            "points": 0
-        }
-    save_data(data)
+# ---------------- POINT SYSTEM ---------------- #
 
-
-def add_points(user_id, amount):
-    data = load_data()
-    if str(user_id) in data:
-        data[str(user_id)]["points"] += amount
-        save_data(data)
-
-
-# ------------------ HANDLERS ------------------
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
-    # 🚫 Skip if admin or owner
+    # 🚫 Skip admins and owner
     member = await chat.get_member(user.id)
     if member.status in ["administrator", "creator"]:
         return
 
+    duration = None
+    points_to_add = 0
+
+    # 🎤 Voice
+    if update.message.voice:
+        duration = update.message.voice.duration
+        points_to_add = 1
+
+    # 🎥 Video or video note
+    elif update.message.video:
+        duration = update.message.video.duration
+        points_to_add = 2
+
+    elif update.message.video_note:
+        duration = update.message.video_note.duration
+        points_to_add = 2
+
+    else:
+        return
+
+    # ⏳ Check duration
+    if duration < 20:
+        await update.message.reply_text(
+            f"🌟 Dear {user.first_name}, your answer is great!\n\n"
+            "But your voice or video must be at least 20 seconds ⏳\n"
+            "Please expand your answer a little more 💬✨\n\n"
+            "You can do it! 💪🔥"
+        )
+        return
+
+    # 💾 Save points
     data = load_data()
-
     user_id = str(user.id)
-    data[user_id] = data.get(user_id, 0) + 1
 
+    data[user_id] = data.get(user_id, 0) + points_to_add
     save_data(data)
 
     await update.message.reply_text(
-        f"🎤 +5 SpeakPoints, {user.first_name}!\n"
-        f"Total: {data[user_id]} points"
+        f"👏 Very nice, @{user.username if user.username else user.first_name}!\n"
+        f"🔥 +{points_to_add} SpeakPoint{'s' if points_to_add > 1 else ''}\n"
+        f"📊 Total: {data[user_id]}"
     )
 
 
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
+# ---------------- TEXT COMMANDS ---------------- #
 
-    # 🚫 Skip if admin or owner
-    member = await chat.get_member(user.id)
-    if member.status in ["administrator", "creator"]:
-        return
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = update.message.text.lower()
 
     data = load_data()
-
     user_id = str(user.id)
-    data[user_id] = data.get(user_id, 0) + 5
 
-    save_data(data)
+    if text == "speakpoints":
+        points = data.get(user_id, 0)
+        await update.message.reply_text(
+            f"📊 {user.first_name}, you currently have:\n\n"
+            f"🔥 {points} SpeakPoints"
+        )
 
-    await update.message.reply_text(
-        f"📹 +5 SpeakPoints, {user.first_name}!\n"
-        f"Total: {data[user_id]} points"
-    )
+    elif text == "top":
+        if not data:
+            await update.message.reply_text("No SpeakPoints yet 🚀")
+            return
 
+        sorted_users = sorted(data.items(), key=lambda x: x[1], reverse=True)
 
-async def show_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    data = load_data()
+        leaderboard = "🏆 LEADERBOARD 🏆\n\n"
 
-    if str(user.id) not in data:
-        await update.message.reply_text("You have 0 SpeakPoints.")
-        return
+        for i, (uid, points) in enumerate(sorted_users[:10], start=1):
+            leaderboard += f"{i}. {points} points\n"
 
-    points = data[str(user.id)]["points"]
-    await update.message.reply_text(
-        f"🏆 @{user.username or user.first_name}, you have {points} SpeakPoints."
-    )
-
-
-async def show_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-
-    if not data:
-        await update.message.reply_text("No SpeakPoints yet.")
-        return
-
-    leaderboard = sorted(
-        data.values(),
-        key=lambda x: x["points"],
-        reverse=True
-    )
-
-    text = "🏆 Leaderboard:\n\n"
-    for i, user in enumerate(leaderboard, start=1):
-        text += f"{i}. @{user['username']} — {user['points']} SpeakPoints\n"
-
-    await update.message.reply_text(text)
+        await update.message.reply_text(leaderboard)
 
 
-async def handle_video_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
-
-    # 🚫 Skip if admin or owner
-    member = await chat.get_member(user.id)
-    if member.status in ["administrator", "creator"]:
-        return
-
-    data = load_data()
-
-    user_id = str(user.id)
-    data[user_id] = data.get(user_id, 0) + 5
-
-    save_data(data)
-
-    await context.bot.send_message(
-        chat_id=chat.id,
-        text=f"🎥 +5 SpeakPoints for starting video chat, {user.first_name}!\n"
-             f"Total: {data[user_id]} points"
-    )
-
-# ------------------ MAIN ------------------
+# ---------------- MAIN ---------------- #
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("id", get_chat_id))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))
-    app.add_handler(MessageHandler(filters.StatusUpdate.VIDEO_CHAT_STARTED, handle_video_chat))
+    # Media handlers
+    app.add_handler(MessageHandler(filters.VOICE, process_message))
+    app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, process_message))
 
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^speakpoints$"), show_points))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^top$"), show_top))
+    # Text handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     print("SpeakPoint Bot is running...")
     app.run_polling()
